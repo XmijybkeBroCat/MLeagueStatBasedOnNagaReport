@@ -1,7 +1,9 @@
 from json import load, loads
-from openpyxl import Workbook
 from os import listdir
 from re import search
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, numbers
 
 
 class PlayerGameData:
@@ -174,13 +176,28 @@ def main(paipu_dir: str, filename: str):
                 players[name] = PlayerData(name)
             players[game_data['Players'][i]].add_game(frame_data[i])
     wb = Workbook()
-    sheet = wb['Sheet']
+    sheet = wb.active
     sheet.append(['雀魂ID', '半庄数', '总PT', '总素点', '平均Naga nishiki 类似度',
                   '一位数', '二位数', '三位数', '四位数', 'TOP率', '连对率', '避四率', '半庄最高打点',
                   '小局数', '和牌率', '放铳率', '自摸率', '默和率', '立直率', '副露率',
                   '平均打点', '平均铳点', '流局率', '流听率'])
     for p in players:
         sheet.append(players[p].dump())
+
+    mr, mc = sheet.max_row, sheet.max_column
+    center = Alignment(horizontal='center', vertical='center')
+    for row in sheet.iter_rows(min_row=1, max_row=mr, min_col=1, max_col=mc):
+        for cell in row:
+            cell.alignment = center
+
+    percent_columns = [10, 11, 12, 15, 16, 17, 18, 19, 20, 23, 24]
+    percent = numbers.FORMAT_PERCENTAGE_00
+    for ci in percent_columns:
+        for ri in range(2, mr + 1):
+            cell = sheet.cell(row=ri, column=ci)
+            cell.number_format = percent
+
+    sheet.auto_filter.ref = sheet.dimensions
     wb.save(filename)
 
 
