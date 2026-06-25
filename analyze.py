@@ -3,7 +3,23 @@ from os import listdir
 from re import search
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, numbers
+from openpyxl.styles import Alignment, Font, PatternFill, numbers
+
+
+PLAYER_DATA = {}
+with open("player_data.csv", "r", encoding="utf-8") as file:
+    _ = file.readline()
+    for _ in range(40):
+        _nick, _game, _team = file.readline().strip().split(",")
+        PLAYER_DATA[_game] = _nick, _team
+
+TEAM_DATA = {}
+with open("team_data.csv", "r", encoding="utf-8") as file:
+    _ = file.readline()
+    for _ in range(8):
+        _team, _front, _back = file.readline().strip().split(",")
+        TEAM_DATA[_team] = Font(color="FF%s" % _front[1:7]), PatternFill(patternType='solid', fgColor="FF%s" % _back[1:7])
+
 
 
 class PlayerGameData:
@@ -21,6 +37,9 @@ class PlayerGameData:
 
 
 class PlayerData:
+    n0 = 3
+    t0 = ['昵称', '雀魂昵称', '所在队伍']
+    #      0       1         2
     n1 = 8
     t1 = ['总场数', '总PT', '总素点', '总Naga nishiki 类似度', '一位数', '二位数', '三位数', '四位数']
     #      0        1      2        3                       4       5        6        7
@@ -29,8 +48,8 @@ class PlayerData:
     #      0        1         2          3         4         5         6          7         8         9          10
 
     def __init__(self, name: str):
-        self.name = name
-        self.max_point = -99999
+        self.d0 = [PLAYER_DATA[name][0], name, PLAYER_DATA[name][1]]
+        self.max_point = -float('inf')
         self.d1 = [0 for _ in range(self.n1)]
         self.d2 = [0 for _ in range(self.n2)]
 
@@ -43,14 +62,15 @@ class PlayerData:
         self.d2 = [self.d2[i] + game.d2[i] for i in range(self.n2)]
 
     def dump(self) -> list[float]:
-        return [self.name, self.d1[0], self.d1[1], self.d1[2], self.d1[3] / self.d1[0],
+        return [self.d0[0], self.d0[1], self.d0[2],
+                self.d1[0], self.d1[1], self.d1[2], self.d1[3] / self.d1[0],
                 self.d1[4], self.d1[5], self.d1[6], self.d1[7],
                 self.d1[4] / self.d1[0], sum(self.d1[4:6]) / self.d1[0], sum(self.d1[4:7]) / self.d1[0], self.max_point,
                 self.d2[0], self.d2[1] / self.d2[0], self.d2[2] / self.d2[0],
-                self.d2[3] / self.d2[1] if self.d2[1] else -1, self.d2[4] / self.d2[1] if self.d2[1] else -1,
+                self.d2[3] / self.d2[1] if self.d2[1] else 'N / A', self.d2[4] / self.d2[1] if self.d2[1] else 'N / A',
                 self.d2[5] / self.d2[0], self.d2[6] / self.d2[0],
-                self.d2[7] / self.d2[1] if self.d2[1] else -1, self.d2[8] / self.d2[2] if self.d2[2] else -1,
-                self.d2[9] / self.d2[0], self.d2[10] / self.d2[9] if self.d2[9] else -1]
+                self.d2[7] / self.d2[1] if self.d2[1] else 'N / A', self.d2[8] / self.d2[2] if self.d2[2] else 'N / A',
+                self.d2[9] / self.d2[0], self.d2[10] / self.d2[9] if self.d2[9] else 'N / A',]
 
 
 def split_hfp(title: str):
@@ -68,7 +88,7 @@ def split_hfp(title: str):
 
 
 def umaoka(game_point: list[int]) -> tuple[list[int], list[float], list[float], list[float]]:
-    """应用MLeague规则将游戏内分数转换为(顺位, 素点, 马点, PT)"""
+    """应用MLeague规则将原始分转换为(顺位, 素点, 马点, PT)"""
     srp = sorted(game_point, reverse=True)
     rp = [p / 1000 - 25 for p in game_point]
     rk = [srp.index(p) + 1 for p in game_point]
@@ -120,9 +140,8 @@ data = [[
 '''
 
 
-def read_naga_frame_data(data: list[str]):
+def read_naga_frame_data(data: list[str], points: list[int], similarity: list[float]):
     players = [PlayerGameData(len(data)) for _ in range(4)]
-    points = [25000 for _ in range(4)]
     dama = [True for _ in range(4)]
     for d in data:
         dama = [True for _ in range(4)]
@@ -135,12 +154,9 @@ def read_naga_frame_data(data: list[str]):
                     break
             for c in js_obj[6 + 3 * i]:  # 出牌列表
                 if isinstance(c, str):   # 立直了
-                    points[i] -= 1000  # 怎么还得手动交棒子，呕吐
-                    # todo: 燕返会扣棒子，并且南四流局完场的棒子没有回收。主要是不知道燕返怎么识别。
                     dama[i] = False
                     players[i].d2[5] += 1
         fd = js_obj[16]
-        points = [points[i] + fd[1][i] for i in range(4)]
         if fd[0] == "和了":
             players[fd[2][0]].d2[1] += 1  # 和牌家的和牌局数
             pt = split_hfp(fd[2][3])
@@ -161,7 +177,7 @@ def read_naga_frame_data(data: list[str]):
             print(fd[0], "What??!")
     rk, rp, mp, pt = umaoka(points)
     for i in range(4):
-        players[i].d1 = [rk[i], pt[i], rp[i], -1]
+        players[i].d1 = [rk[i], pt[i], rp[i], similarity[i]]
         players[i].point = points[i]
     return players
 
@@ -170,19 +186,35 @@ def main(paipu_dir: str, filename: str):
     players = {}
     for fn in listdir(paipu_dir):
         game_data = load(open(f'{paipu_dir}/{fn}', 'r', encoding='UTF-8'))
-        frame_data = read_naga_frame_data(game_data['Frames'])
+        frame_data = read_naga_frame_data(game_data['Frames'], game_data['Origin'], game_data['Similarity'])
         for i in range(4):
             if (name := game_data['Players'][i]) not in players:
                 players[name] = PlayerData(name)
             players[game_data['Players'][i]].add_game(frame_data[i])
     wb = Workbook()
     sheet = wb.active
-    sheet.append(['雀魂ID', '半庄数', '总PT', '总素点', '平均Naga nishiki 类似度',
+    sheet.append(['昵称', '雀魂昵称', '所属队伍',
+                  '半庄数', '总PT', '总素点', '平均Naga类似度',
                   '一位数', '二位数', '三位数', '四位数', 'TOP率', '连对率', '避四率', '半庄最高打点',
                   '小局数', '和牌率', '放铳率', '自摸率', '默和率', '立直率', '副露率',
                   '平均打点', '平均铳点', '流局率', '流听率'])
-    for p in players:
+    int_columns = [23, 24]
+    percent_columns = [12, 13, 14, 17, 18, 19, 20, 21, 22, 25, 26]
+    percent = numbers.FORMAT_PERCENTAGE_00
+    for i, p in enumerate(players):
         sheet.append(players[p].dump())
+        for j in range(3):
+            cell = sheet.cell(row=i + 2, column=j + 1)
+            cell.font = TEAM_DATA[PLAYER_DATA[p][1]][0]
+            cell.fill = TEAM_DATA[PLAYER_DATA[p][1]][1]
+        cell = sheet.cell(row=i + 2, column=7)
+        cell.number_format = '0.0'
+        for j in int_columns:
+            cell = sheet.cell(row=i + 2, column=j)
+            cell.number_format = '0'
+        for j in percent_columns:
+            cell = sheet.cell(row=i + 2, column=j)
+            cell.number_format = percent
 
     mr, mc = sheet.max_row, sheet.max_column
     center = Alignment(horizontal='center', vertical='center')
@@ -190,16 +222,14 @@ def main(paipu_dir: str, filename: str):
         for cell in row:
             cell.alignment = center
 
-    percent_columns = [10, 11, 12, 15, 16, 17, 18, 19, 20, 23, 24]
-    percent = numbers.FORMAT_PERCENTAGE_00
-    for ci in percent_columns:
-        for ri in range(2, mr + 1):
-            cell = sheet.cell(row=ri, column=ci)
-            cell.number_format = percent
-
+    widths = [20, 20, 16, 8, 8, 8, 16, 8, 8, 8, 8, 8, 8, 8, 14, 8, 8, 8, 8, 8, 8, 8, 10, 10, 8, 8]
+    for i, w in enumerate(widths):
+        sheet.column_dimensions[chr(i + 65)].width = w
+    sheet.freeze_panes = 'D2'
     sheet.auto_filter.ref = sheet.dimensions
+
     wb.save(filename)
 
 
 if __name__ == '__main__':
-    main('test', 'test.xlsx')
+    main('Regular', 'Regular.xlsx')
